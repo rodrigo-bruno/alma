@@ -191,7 +191,7 @@ Agent_OnLoad(JavaVM *vm, char *options, void *reserved)
 	return -1;
     }
     
-    if(log = fopen("agent.log", "a")) {
+    if((log = fopen("agent.log", "a")) == NULL) {
         fprintf(stderr, "ERROR: Unable to open log file.\n");
     }
     
