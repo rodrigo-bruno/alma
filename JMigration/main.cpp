@@ -45,10 +45,16 @@
 #include "jni.h"
 #include "jvmti.h"
 
+/* TODO 
+    1- output must be directed to one file (done)
+    2- check if I can peed the internals of the VM (heap)
+ */
+
 /* Global static data */
-static jvmtiEnv     *jvmti;
+static jvmtiEnv*     jvmti;
 static int           gc_count;
 static jrawMonitorID lock;
+static FILE*          log;
 
 /* Worker thread that waits for garbage collections */
 static void JNICALL
@@ -56,18 +62,18 @@ worker(jvmtiEnv* jvmti, JNIEnv* jni, void *p)
 {
     jvmtiError err;
     
-    fprintf(stderr, "GC worker started...\n");
+    fprintf(log, "GC worker started...\n");
 
     for (;;) {
         err = jvmti->RawMonitorEnter(lock);
         if (err != JVMTI_ERROR_NONE) {
-	    fprintf(stderr, "ERROR: RawMonitorEnter failed, err=%d\n", err);
+	    fprintf(log, "ERROR: RawMonitorEnter failed, err=%d\n", err);
 	    return;
 	}
 	while (gc_count == 0) {
 	    err = jvmti->RawMonitorWait(lock, 0);
 	    if (err != JVMTI_ERROR_NONE) {
-		fprintf(stderr, "ERROR: RawMonitorWait failed, err=%d\n", err);
+		fprintf(log, "ERROR: RawMonitorWait failed, err=%d\n", err);
 		jvmti->RawMonitorExit(lock);
 		return;
 	    }
@@ -77,7 +83,7 @@ worker(jvmtiEnv* jvmti, JNIEnv* jni, void *p)
 	jvmti->RawMonitorExit(lock);
 
 	/* Perform arbitrary JVMTI/JNI work here to do post-GC cleanup */
-	fprintf(stderr, "post-GarbageCollectionFinish actions...\n");
+	fprintf(log, "post-GarbageCollectionFinish actions...\n");
     }
 }
 
@@ -100,12 +106,12 @@ vm_init(jvmtiEnv *jvmti, JNIEnv *env, jthread thread)
 {
     jvmtiError err;
     
-    fprintf(stderr, "VMInit...\n");
+    fprintf(log, "VMInit...\n");
 
     err = jvmti->RunAgentThread(alloc_thread(env), &worker, NULL,
 	JVMTI_THREAD_MAX_PRIORITY);
     if (err != JVMTI_ERROR_NONE) {
-	fprintf(stderr, "ERROR: RunAgentProc failed, err=%d\n", err);
+	fprintf(log, "ERROR: RunAgentProc failed, err=%d\n", err);
     }
 }
 
@@ -113,7 +119,7 @@ vm_init(jvmtiEnv *jvmti, JNIEnv *env, jthread thread)
 static void JNICALL 
 gc_start(jvmtiEnv* jvmti_env) 
 {
-    fprintf(stderr, "GarbageCollectionStart...\n");
+    fprintf(log, "GarbageCollectionStart...\n");
 }
 
 /* Callback for JVMTI_EVENT_GARBAGE_COLLECTION_FINISH */
@@ -122,16 +128,16 @@ gc_finish(jvmtiEnv* jvmti_env)
 {
     jvmtiError err;
     
-    fprintf(stderr, "GarbageCollectionFinish...\n");
+    fprintf(log, "GarbageCollectionFinish...\n");
 
     err = jvmti->RawMonitorEnter(lock);
     if (err != JVMTI_ERROR_NONE) {
-	fprintf(stderr, "ERROR: RawMonitorEnter failed, err=%d\n", err);
+	fprintf(log, "ERROR: RawMonitorEnter failed, err=%d\n", err);
     } else {
         gc_count++;
         err = jvmti->RawMonitorNotify(lock);
 	if (err != JVMTI_ERROR_NONE) {
-	    fprintf(stderr, "ERROR: RawMonitorNotify failed, err=%d\n", err);
+	    fprintf(log, "ERROR: RawMonitorNotify failed, err=%d\n", err);
 	}
         err = jvmti->RawMonitorExit(lock);
     }
@@ -149,19 +155,19 @@ Agent_OnLoad(JavaVM *vm, char *options, void *reserved)
     /* Get JVMTI environment */
     rc = vm->GetEnv((void **)&jvmti, JVMTI_VERSION);
     if (rc != JNI_OK) {
-	fprintf(stderr, "ERROR: Unable to create jvmtiEnv, GetEnv failed, error=%d\n", rc);
+	fprintf(log, "ERROR: Unable to create jvmtiEnv, GetEnv failed, error=%d\n", rc);
 	return -1;
     }
 
     /* Get/Add JVMTI capabilities */ 
     err = jvmti->GetCapabilities(&capabilities);
     if (err != JVMTI_ERROR_NONE) {
-	fprintf(stderr, "ERROR: GetCapabilities failed, error=%d\n", err);
+	fprintf(log, "ERROR: GetCapabilities failed, error=%d\n", err);
     }
     capabilities.can_generate_garbage_collection_events = 1;
     err = jvmti->AddCapabilities(&capabilities);
     if (err != JVMTI_ERROR_NONE) {
-	fprintf(stderr, "ERROR: AddCapabilities failed, error=%d\n", err);
+	fprintf(log, "ERROR: AddCapabilities failed, error=%d\n", err);
 	return -1;
     }
 
@@ -181,9 +187,14 @@ Agent_OnLoad(JavaVM *vm, char *options, void *reserved)
     /* Create the necessary raw monitor */
     err = jvmti->CreateRawMonitor("lock", &lock);
     if (err != JVMTI_ERROR_NONE) {
-	fprintf(stderr, "ERROR: Unable to create raw monitor: %d\n", err);
+	fprintf(log, "ERROR: Unable to create raw monitor: %d\n", err);
 	return -1;
     }
+    
+    if(log = fopen("agent.log", "a")) {
+        fprintf(stderr, "ERROR: Unable to open log file.\n");
+    }
+    
     return 0;
 }
 
