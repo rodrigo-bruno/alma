@@ -113,6 +113,9 @@ vm_init(jvmtiEnv *jvmti, JNIEnv *env, jthread thread)
     if (err != JVMTI_ERROR_NONE) {
 	fprintf(log, "ERROR: RunAgentProc failed, err=%d\n", err);
     }
+    printf("<underscore>\n");
+    jvmti->PrepareMigration();
+    printf("</underscore>\n");
 }
 
 /* Callback for JVMTI_EVENT_GARBAGE_COLLECTION_START */
