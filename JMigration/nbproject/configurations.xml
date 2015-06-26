@@ -40,10 +40,8 @@
       <compileType>
         <ccTool>
           <incDir>
-            <pElem>/usr/lib/jvm/java-7-oracle/include</pElem>
-            <pElem>/usr/lib/jvm/java-7-oracle/include/linux</pElem>
-            <pElem>/usr/lib/jvm/java-7-openjdk-amd64/include</pElem>
-            <pElem>/usr/lib/jvm/java-7-openjdk-amd64/include/linux</pElem>
+            <pElem>../../../mercurial/jdk8/build/linux-x86_64-normal-server-release/jdk/include/linux</pElem>
+            <pElem>../../../mercurial/jdk8/build/linux-x86_64-normal-server-release/jdk/include</pElem>
           </incDir>
         </ccTool>
       </compileType>
