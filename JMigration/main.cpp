@@ -41,6 +41,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <csignal>
 
 #include "jni.h"
 #include "jvmti.h"
@@ -55,6 +56,14 @@ static jvmtiEnv*     jvmti;
 static int           gc_count;
 static jrawMonitorID lock;
 static FILE*          log;
+static int            prepare_migration;
+static jlong          min_migration_bandwidth = 1000;
+
+void signalHandler( int signum )
+{
+    printf("Preparing Migration...\n");
+    prepare_migration = 1;
+}
 
 /* Worker thread that waits for garbage collections */
 static void JNICALL
@@ -67,13 +76,13 @@ worker(jvmtiEnv* jvmti, JNIEnv* jni, void *p)
     for (;;) {
         err = jvmti->RawMonitorEnter(lock);
         if (err != JVMTI_ERROR_NONE) {
-	    fprintf(log, "ERROR: RawMonitorEnter failed, err=%d\n", err);
+	    fprintf(log, "ERROR: RawMonitorEnter failed (worker1), err=%d\n", err);
 	    return;
 	}
 	while (gc_count == 0) {
 	    err = jvmti->RawMonitorWait(lock, 0);
 	    if (err != JVMTI_ERROR_NONE) {
-		fprintf(log, "ERROR: RawMonitorWait failed, err=%d\n", err);
+		fprintf(log, "ERROR: RawMonitorWait failed (worker1), err=%d\n", err);
 		jvmti->RawMonitorExit(lock);
 		return;
 	    }
@@ -84,6 +93,35 @@ worker(jvmtiEnv* jvmti, JNIEnv* jni, void *p)
 
 	/* Perform arbitrary JVMTI/JNI work here to do post-GC cleanup */
 	fprintf(log, "post-GarbageCollectionFinish actions...\n");
+    }
+}
+
+/* Worker thread that waits for JVM migration */
+static void JNICALL
+worker2(jvmtiEnv* jvmti, JNIEnv* jni, void *p) 
+{
+    jvmtiError err;
+    
+    for (;;) {
+        err = jvmti->RawMonitorEnter(lock);
+        if (err != JVMTI_ERROR_NONE) {
+	    fprintf(log, "ERROR: RawMonitorEnter failed (worker2), err=%d\n", err);
+	    return;
+	}
+	while (prepare_migration == 0) {
+	    err = jvmti->RawMonitorWait(lock, 0);
+	    if (err != JVMTI_ERROR_NONE) {
+		fprintf(log, "ERROR: RawMonitorWait failed (worker2), err=%d\n", err);
+		jvmti->RawMonitorExit(lock);
+		return;
+	    }
+	}
+	prepare_migration = 0;
+        
+	jvmti->RawMonitorExit(lock);
+        
+        // Prepare Migration
+        jvmti->PrepareMigration(min_migration_bandwidth);
     }
 }
 
@@ -111,11 +149,13 @@ vm_init(jvmtiEnv *jvmti, JNIEnv *env, jthread thread)
     err = jvmti->RunAgentThread(alloc_thread(env), &worker, NULL,
 	JVMTI_THREAD_MAX_PRIORITY);
     if (err != JVMTI_ERROR_NONE) {
-	fprintf(log, "ERROR: RunAgentProc failed, err=%d\n", err);
+	fprintf(log, "ERROR: RunAgentProc failed (worker1), err=%d\n", err);
     }
-    printf("<underscore>\n");
-    jvmti->PrepareMigration();
-    printf("</underscore>\n");
+    err = jvmti->RunAgentThread(alloc_thread(env), &worker2, NULL,
+	JVMTI_THREAD_MAX_PRIORITY);
+    if (err != JVMTI_ERROR_NONE) {
+	fprintf(log, "ERROR: RunAgentProc failed (worker2), err=%d\n", err);
+    }
 }
 
 /* Callback for JVMTI_EVENT_GARBAGE_COLLECTION_START */
@@ -196,6 +236,10 @@ Agent_OnLoad(JavaVM *vm, char *options, void *reserved)
     
     if((log = fopen("agent.log", "a")) == NULL) {
         fprintf(stderr, "ERROR: Unable to open log file.\n");
+    }
+    
+    if(signal(SIGUSR2, signalHandler) == SIG_ERR) {
+        fprintf(stderr, "ERROR: Could not place signal handler for SIGUSR2.\n");
     }
     
     return 0;
