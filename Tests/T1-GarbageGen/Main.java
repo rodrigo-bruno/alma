@@ -7,7 +7,7 @@ class Garbage {
 public class Main {
   public static void main(String[] args) throws Exception {
     for(;;) { 
-      //Thread.sleep(10); 
+      Thread.sleep(1000); 
       new Garbage(); 
     }
   }
