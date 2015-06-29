@@ -34,35 +34,30 @@
  * nuclear facility.
  */
 
-/* Example of using JVMTI_EVENT_GARBAGE_COLLECTION_START and
- *                  JVMTI_EVENT_GARBAGE_COLLECTION_FINISH events.
- */
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <csignal>
+#include<pthread.h>
 
 #include "jni.h"
 #include "jvmti.h"
 
-/* TODO 
-    1- output must be directed to one file (done)
-    2- check if I can peed the internals of the VM (heap)
- */
 
 /* Global static data */
-static jvmtiEnv*     jvmti;
-static int           gc_count;
-static jrawMonitorID lock;
+static jvmtiEnv*      jvmti;
+static int            gc_count;
+static jrawMonitorID  lock;
 static FILE*          log;
-static int            prepare_migration;
 static jlong          min_migration_bandwidth = 1000;
+
+static pthread_mutex_t mutex;
 
 void signalHandler( int signum )
 {
-    printf("Preparing Migration...\n");
-    prepare_migration = 1;
+    // TODO - use a simple C lock?
+    printf("Preparing Migration...\n");    
+    pthread_mutex_unlock(&mutex);
 }
 
 /* Worker thread that waits for garbage collections */
@@ -100,27 +95,8 @@ worker(jvmtiEnv* jvmti, JNIEnv* jni, void *p)
 static void JNICALL
 worker2(jvmtiEnv* jvmti, JNIEnv* jni, void *p) 
 {
-    jvmtiError err;
-    
     for (;;) {
-        err = jvmti->RawMonitorEnter(lock);
-        if (err != JVMTI_ERROR_NONE) {
-	    fprintf(log, "ERROR: RawMonitorEnter failed (worker2), err=%d\n", err);
-	    return;
-	}
-	while (prepare_migration == 0) {
-	    err = jvmti->RawMonitorWait(lock, 0);
-	    if (err != JVMTI_ERROR_NONE) {
-		fprintf(log, "ERROR: RawMonitorWait failed (worker2), err=%d\n", err);
-		jvmti->RawMonitorExit(lock);
-		return;
-	    }
-	}
-	prepare_migration = 0;
-        
-	jvmti->RawMonitorExit(lock);
-        
-        // Prepare Migration
+        pthread_mutex_lock(&mutex);
         jvmti->PrepareMigration(min_migration_bandwidth);
     }
 }
@@ -175,12 +151,12 @@ gc_finish(jvmtiEnv* jvmti_env)
 
     err = jvmti->RawMonitorEnter(lock);
     if (err != JVMTI_ERROR_NONE) {
-	fprintf(log, "ERROR: RawMonitorEnter failed, err=%d\n", err);
+	fprintf(log, "ERROR: RawMonitorEnter failed (worker1), err=%d\n", err);
     } else {
         gc_count++;
         err = jvmti->RawMonitorNotify(lock);
 	if (err != JVMTI_ERROR_NONE) {
-	    fprintf(log, "ERROR: RawMonitorNotify failed, err=%d\n", err);
+	    fprintf(log, "ERROR: RawMonitorNotify failed (worker1), err=%d\n", err);
 	}
         err = jvmti->RawMonitorExit(lock);
     }
@@ -233,6 +209,12 @@ Agent_OnLoad(JavaVM *vm, char *options, void *reserved)
 	fprintf(log, "ERROR: Unable to create raw monitor: %d\n", err);
 	return -1;
     }
+    if (pthread_mutex_init(&mutex, NULL) != 0)
+    {
+        fprintf(log, "\n mutex init failed\n");
+        return -11;
+    }
+    pthread_mutex_lock(&mutex);
     
     if((log = fopen("agent.log", "a")) == NULL) {
         fprintf(stderr, "ERROR: Unable to open log file.\n");
