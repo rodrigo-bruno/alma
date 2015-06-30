@@ -50,6 +50,7 @@ static int            gc_count;
 static jrawMonitorID  lock;
 static FILE*          log;
 static jlong          min_migration_bandwidth = 1000;
+static bool           migration_in_progress = false;
 
 static pthread_mutex_t mutex;
 
@@ -97,7 +98,10 @@ worker2(jvmtiEnv* jvmti, JNIEnv* jni, void *p)
 {
     for (;;) {
         pthread_mutex_lock(&mutex);
+        migration_in_progress = true;
         jvmti->PrepareMigration(min_migration_bandwidth);
+        // TODO - are we inside a safepoint pause?
+        //
     }
 }
 
@@ -154,6 +158,10 @@ gc_finish(jvmtiEnv* jvmti_env)
 	fprintf(log, "ERROR: RawMonitorEnter failed (worker1), err=%d\n", err);
     } else {
         gc_count++;
+        if(migration_in_progress) {
+          migration_in_progress = false;
+          // TODO - if migration is in_progress, call migration library.
+        }
         err = jvmti->RawMonitorNotify(lock);
 	if (err != JVMTI_ERROR_NONE) {
 	    fprintf(log, "ERROR: RawMonitorNotify failed (worker1), err=%d\n", err);
