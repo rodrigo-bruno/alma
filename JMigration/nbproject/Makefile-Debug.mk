@@ -52,7 +52,7 @@ FFLAGS=
 ASFLAGS=
 
 # Link Libraries and Options
-LDLIBSOPTIONS=
+LDLIBSOPTIONS=-lcriu -shared -fPIC
 
 # Build Targets
 .build-conf: ${BUILD_SUBPROJECTS}

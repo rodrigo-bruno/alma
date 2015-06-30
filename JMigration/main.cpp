@@ -38,11 +38,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <csignal>
-#include<pthread.h>
+#include <pthread.h>
 
 #include "jni.h"
 #include "jvmti.h"
 
+#include <criu/criu.h>
 
 /* Global static data */
 static jvmtiEnv*      jvmti;
@@ -59,6 +60,29 @@ void signalHandler( int signum )
     // TODO - use a simple C lock?
     printf("Preparing Migration...\n");    
     pthread_mutex_unlock(&mutex);
+}
+
+bool dump_jvm() {
+    int ret = -1;
+    
+    printf("Dumping...\n");
+    if(!criu_init_opts()) {
+        fprintf(log, "ERROR: criu_init_opts failed.\n");
+    }
+    /*
+    criu_set_service_address(NULL); // TODO - check if this is okey. 
+    criu_set_images_dir_fd(0);     // TODO - fix this
+    criu_set_log_level(4); 
+    criu_set_log_file("dump.log");                                  
+    criu_set_leave_running(false);
+    ret = criu_dump();                                              
+    if (ret < 0) {
+      fprintf(log, "ERROR: failed to dump jvm (error code = %d).\n", ret);
+    }
+    else {
+        fprintf(log, "Done Dumping JVM\n");
+    }
+    */
 }
 
 /* Worker thread that waits for garbage collections */
@@ -160,7 +184,9 @@ gc_finish(jvmtiEnv* jvmti_env)
         gc_count++;
         if(migration_in_progress) {
           migration_in_progress = false;
-          // TODO - if migration is in_progress, call migration library.
+          if (!dump_jvm()) {
+            fprintf(log, "ERROR: JVM dump failed.\n");
+          }
         }
         err = jvmti->RawMonitorNotify(lock);
 	if (err != JVMTI_ERROR_NONE) {
