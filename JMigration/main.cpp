@@ -57,7 +57,6 @@ static pthread_mutex_t mutex;
 
 void signalHandler( int signum )
 {
-    // TODO - use a simple C lock?
     printf("Preparing Migration...\n");    
     pthread_mutex_unlock(&mutex);
 }
@@ -113,6 +112,13 @@ worker(jvmtiEnv* jvmti, JNIEnv* jni, void *p)
 
 	/* Perform arbitrary JVMTI/JNI work here to do post-GC cleanup */
 	fprintf(log, "post-GarbageCollectionFinish actions...\n");
+        if(migration_in_progress) {
+          migration_in_progress = false;
+          
+          if (!dump_jvm()) { // TODO - replace this call with a call to the interface
+            fprintf(log, "ERROR: JVM dump failed.\n");
+          }
+        }
     }
 }
 
@@ -124,8 +130,6 @@ worker2(jvmtiEnv* jvmti, JNIEnv* jni, void *p)
         pthread_mutex_lock(&mutex);
         migration_in_progress = true;
         jvmti->PrepareMigration(min_migration_bandwidth);
-        // TODO - are we inside a safepoint pause?
-        //
     }
 }
 
@@ -182,12 +186,6 @@ gc_finish(jvmtiEnv* jvmti_env)
 	fprintf(log, "ERROR: RawMonitorEnter failed (worker1), err=%d\n", err);
     } else {
         gc_count++;
-        if(migration_in_progress) {
-          migration_in_progress = false;
-          if (!dump_jvm()) {
-            fprintf(log, "ERROR: JVM dump failed.\n");
-          }
-        }
         err = jvmti->RawMonitorNotify(lock);
 	if (err != JVMTI_ERROR_NONE) {
 	    fprintf(log, "ERROR: RawMonitorNotify failed (worker1), err=%d\n", err);
