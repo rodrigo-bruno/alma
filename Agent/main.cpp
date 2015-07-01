@@ -1,50 +1,26 @@
-/*
- * @(#)gctest.c	1.5 04/07/27
- * 
- * Copyright (c) 2004 Sun Microsystems, Inc. All Rights Reserved.
- * 
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- * 
- * -Redistribution of source code must retain the above copyright notice, this
- *  list of conditions and the following disclaimer.
- * 
- * -Redistribution in binary form must reproduce the above copyright notice, 
- *  this list of conditions and the following disclaimer in the documentation
- *  and/or other materials provided with the distribution.
- * 
- * Neither the name of Sun Microsystems, Inc. or the names of contributors may 
- * be used to endorse or promote products derived from this software without 
- * specific prior written permission.
- * 
- * This software is provided "AS IS," without a warranty of any kind. ALL 
- * EXPRESS OR IMPLIED CONDITIONS, REPRESENTATIONS AND WARRANTIES, INCLUDING
- * ANY IMPLIED WARRANTY OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE
- * OR NON-INFRINGEMENT, ARE HEREBY EXCLUDED. SUN MIDROSYSTEMS, INC. ("SUN")
- * AND ITS LICENSORS SHALL NOT BE LIABLE FOR ANY DAMAGES SUFFERED BY LICENSEE
- * AS A RESULT OF USING, MODIFYING OR DISTRIBUTING THIS SOFTWARE OR ITS
- * DERIVATIVES. IN NO EVENT WILL SUN OR ITS LICENSORS BE LIABLE FOR ANY LOST 
- * REVENUE, PROFIT OR DATA, OR FOR DIRECT, INDIRECT, SPECIAL, CONSEQUENTIAL, 
- * INCIDENTAL OR PUNITIVE DAMAGES, HOWEVER CAUSED AND REGARDLESS OF THE THEORY 
- * OF LIABILITY, ARISING OUT OF THE USE OF OR INABILITY TO USE THIS SOFTWARE, 
- * EVEN IF SUN HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
- * 
- * You acknowledge that this software is not designed, licensed or intended
- * for use in the design, construction, operation or maintenance of any
- * nuclear facility.
- */
+/* TODO - include open source banner. */
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <fcntl.h>
 #include <string.h>
-#include <csignal>
+
 #include <pthread.h>
+
+#include <unistd.h>
+#include <sys/types.h> 
+#include <sys/socket.h>
+#include <netinet/in.h>
 
 #include "jni.h"
 #include "jvmti.h"
 
-#include <dlfcn.h>
+// TODO - put these definitions into a shared header.
+// TODO - support for different ports. If one is taken, take the next.
+#define AGENT_SOCK_PORT 9999
+
+#define PREPARE_MIGRATION "01"
+// TODO GET_PID?
+
 
 /* Global static data */
 static jvmtiEnv*      jvmti;
@@ -52,60 +28,9 @@ static int            gc_count;
 static jrawMonitorID  lock;
 static FILE*          log;
 static jlong          min_migration_bandwidth = 1000;
-static bool           migration_in_progress = false;
-static void*          criu_handle = NULL;
-
-/* criu library functions */
-int  (*criu_init_opts)           (void);
-void (*criu_set_images_dir_fd)   (int); /* must be set for dump/restore */
-void (*criu_set_leave_running)   (bool);
-void (*criu_set_log_level)       (int);
-void (*criu_set_log_file)        (char*);
-int  (*criu_dump)                (void);
-void (*criu_set_service_address) (char*);
-
-
-
+// TODO - replace this with another mutex?
+static bool           migration_in_progress = false; 
 static pthread_mutex_t mutex;
-
-void signalHandler( int signum )
-{
-    printf("Preparing Migration...\n");    
-    pthread_mutex_unlock(&mutex);
-}
-
-bool dump_jvm() {
-    int ret = -1;
-    int fd;
-    
-    printf("Dumping...\n");
-
-    fd = open("/tmp/dump-test/", O_DIRECTORY);
-    if (fd < 0) {
-      fprintf(log, "ERROR: can't open images dir.\n");
-      return false;
-    }  
-    
-    ret = (*criu_init_opts)();
-    if(ret) {
-        fprintf(log, "ERROR: criu_init_opts failed.\n");
-    }
-    
-    (*criu_set_service_address)("/tmp/criu-service");
-    (*criu_set_images_dir_fd)(fd);     // TODO - fix this
-    (*criu_set_log_level)(4); 
-    (*criu_set_log_file)("dump.log");                                  
-    (*criu_set_leave_running)(false);
-    
-    printf("Final Call...\n");
-    ret = (*criu_dump)();
-    if (ret < 0) {
-      fprintf(log, "ERROR: failed to dump jvm (error code = %d).\n", ret);
-      return false;
-    }
-    
-    return true;
-}
 
 /* Worker thread that waits for garbage collections */
 static void JNICALL
@@ -137,25 +62,67 @@ worker(jvmtiEnv* jvmti, JNIEnv* jni, void *p)
 	fprintf(log, "post-GarbageCollectionFinish actions...\n");
         if(migration_in_progress) {
           migration_in_progress = false;
-          
-          if (!dump_jvm()) { // TODO - replace this call with a call to the interface
-            fprintf(log, "ERROR: JVM dump failed.\n");
-          }
-          else {
-            printf("Done dumping.\n");
-          }
+          pthread_mutex_unlock(&mutex);
+          // TODO - swith the mutex to alert the other thread to use the socket.          
         }
     }
 }
 
 /* Worker thread that waits for JVM migration */
 static void JNICALL
-worker2(jvmtiEnv* jvmti, JNIEnv* jni, void *p) 
-{
-    for (;;) {
-        pthread_mutex_lock(&mutex);
-        migration_in_progress = true;
-        jvmti->PrepareMigration(min_migration_bandwidth);
+worker2(jvmtiEnv* jvmti, JNIEnv* jni, void *p) {
+    int sockfd, newsockfd;
+    socklen_t clilen;
+    char buffer[256];
+    struct sockaddr_in serv_addr, cli_addr;
+
+    while(true) {
+        sockfd = socket(AF_INET, SOCK_STREAM, 0);
+        if (sockfd < 0) {
+            fprintf(log, "ERROR: Unable to open agent socket.\n");
+        }
+        
+        bzero((char *) &serv_addr, sizeof(serv_addr));
+        serv_addr.sin_family = AF_INET;
+        serv_addr.sin_addr.s_addr = INADDR_ANY;
+        serv_addr.sin_port = htons(AGENT_SOCK_PORT);
+        
+        if (bind(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) { 
+            fprintf(log, "ERROR: Unable to bind agent socket.\n");
+        }
+        else {
+            fprintf(log, "Agent socket ready to accept connections.\n");
+        }
+        
+        listen(sockfd,1);
+        clilen = sizeof(cli_addr);
+        newsockfd = accept(sockfd, (struct sockaddr *) &cli_addr, &clilen);
+        if (newsockfd < 0) {
+            fprintf(log, "ERROR: connection accept failed.\n");
+        }
+        else {
+            fprintf(log, "Coordinator connection accepted.\n");
+        }
+
+        while(true) {
+            bzero(buffer,256);
+            if(read(newsockfd,buffer,255) < 0) {
+                fprintf(log, "ERROR: failed to read from socket.\n");
+                break;
+            }
+            if(strncmp(buffer, PREPARE_MIGRATION, sizeof(PREPARE_MIGRATION))) {
+              fprintf(log, "Preparing Migration\n");
+              jvmti->PrepareMigration(min_migration_bandwidth);
+              migration_in_progress = true;
+              pthread_mutex_lock(&mutex);
+              close(newsockfd); // This will ack the other side.
+              close(sockfd);    // This will not allow new connections.
+              pthread_mutex_lock(&mutex);
+            }
+            else {
+                fprintf(log, "ERROR: received unknown message. Ignoring...\n");
+            }
+        }
     }
 }
 
@@ -267,34 +234,19 @@ Agent_OnLoad(JavaVM *vm, char *options, void *reserved)
 	fprintf(log, "ERROR: Unable to create raw monitor: %d\n", err);
 	return -1;
     }
+
+    if((log = fopen("agent.log", "a")) == NULL) {
+        fprintf(stderr, "ERROR: Unable to open log file.\n");
+    }
+    
     if (pthread_mutex_init(&mutex, NULL) != 0)
     {
         fprintf(log, "\n mutex init failed\n");
         return -11;
     }
+    // TODO - explain why mutex is locked here.
     pthread_mutex_lock(&mutex);
     
-    if((log = fopen("agent.log", "a")) == NULL) {
-        fprintf(stderr, "ERROR: Unable to open log file.\n");
-    }
-    
-    if(signal(SIGUSR2, signalHandler) == SIG_ERR) {
-        fprintf(stderr, "ERROR: Could not place signal handler for SIGUSR2.\n");
-    }
-    
-    criu_handle = dlopen("/usr/local/lib/libcriu.so", RTLD_NOW);
-    if (!criu_handle) {
-      fprintf(stderr, "ERROR: failed to load libcriu.so, %s\n", dlerror());
-      dlerror();    /* Clear any existing error */
-    }
-    
-    /* I will assume that these functions are all found if the library is found. */
-    *(void **) (&criu_init_opts) = dlsym(criu_handle, "criu_init_opts");
-    *(void **) (&criu_set_images_dir_fd) = dlsym(criu_handle, "criu_set_images_dir_fd");
-    *(void **) (&criu_set_leave_running) = dlsym(criu_handle, "criu_set_leave_running");
-    *(void **) (&criu_set_log_level) = dlsym(criu_handle, "criu_set_log_level");
-    *(void **) (&criu_set_log_file) = dlsym(criu_handle, "criu_set_log_file");
-
     return 0;
 }
 
