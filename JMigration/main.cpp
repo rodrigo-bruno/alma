@@ -36,6 +36,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <fcntl.h>
 #include <string.h>
 #include <csignal>
 #include <pthread.h>
@@ -43,7 +44,7 @@
 #include "jni.h"
 #include "jvmti.h"
 
-#include <criu/criu.h>
+#include <dlfcn.h>
 
 /* Global static data */
 static jvmtiEnv*      jvmti;
@@ -52,6 +53,18 @@ static jrawMonitorID  lock;
 static FILE*          log;
 static jlong          min_migration_bandwidth = 1000;
 static bool           migration_in_progress = false;
+static void*          criu_handle = NULL;
+
+/* criu library functions */
+int  (*criu_init_opts)           (void);
+void (*criu_set_images_dir_fd)   (int); /* must be set for dump/restore */
+void (*criu_set_leave_running)   (bool);
+void (*criu_set_log_level)       (int);
+void (*criu_set_log_file)        (char*);
+int  (*criu_dump)                (void);
+void (*criu_set_service_address) (char*);
+
+
 
 static pthread_mutex_t mutex;
 
@@ -63,25 +76,35 @@ void signalHandler( int signum )
 
 bool dump_jvm() {
     int ret = -1;
+    int fd;
     
     printf("Dumping...\n");
-    if(!criu_init_opts()) {
+
+    fd = open("/tmp/dump-test/", O_DIRECTORY);
+    if (fd < 0) {
+      fprintf(log, "ERROR: can't open images dir.\n");
+      return false;
+    }  
+    
+    ret = (*criu_init_opts)();
+    if(ret) {
         fprintf(log, "ERROR: criu_init_opts failed.\n");
     }
-    /*
-    criu_set_service_address(NULL); // TODO - check if this is okey. 
-    criu_set_images_dir_fd(0);     // TODO - fix this
-    criu_set_log_level(4); 
-    criu_set_log_file("dump.log");                                  
-    criu_set_leave_running(false);
-    ret = criu_dump();                                              
+    
+    (*criu_set_service_address)("/tmp/criu-service");
+    (*criu_set_images_dir_fd)(fd);     // TODO - fix this
+    (*criu_set_log_level)(4); 
+    (*criu_set_log_file)("dump.log");                                  
+    (*criu_set_leave_running)(false);
+    
+    printf("Final Call...\n");
+    ret = (*criu_dump)();
     if (ret < 0) {
       fprintf(log, "ERROR: failed to dump jvm (error code = %d).\n", ret);
+      return false;
     }
-    else {
-        fprintf(log, "Done Dumping JVM\n");
-    }
-    */
+    
+    return true;
 }
 
 /* Worker thread that waits for garbage collections */
@@ -117,6 +140,9 @@ worker(jvmtiEnv* jvmti, JNIEnv* jni, void *p)
           
           if (!dump_jvm()) { // TODO - replace this call with a call to the interface
             fprintf(log, "ERROR: JVM dump failed.\n");
+          }
+          else {
+            printf("Done dumping.\n");
           }
         }
     }
@@ -256,6 +282,19 @@ Agent_OnLoad(JavaVM *vm, char *options, void *reserved)
         fprintf(stderr, "ERROR: Could not place signal handler for SIGUSR2.\n");
     }
     
+    criu_handle = dlopen("/usr/local/lib/libcriu.so", RTLD_NOW);
+    if (!criu_handle) {
+      fprintf(stderr, "ERROR: failed to load libcriu.so, %s\n", dlerror());
+      dlerror();    /* Clear any existing error */
+    }
+    
+    /* I will assume that these functions are all found if the library is found. */
+    *(void **) (&criu_init_opts) = dlsym(criu_handle, "criu_init_opts");
+    *(void **) (&criu_set_images_dir_fd) = dlsym(criu_handle, "criu_set_images_dir_fd");
+    *(void **) (&criu_set_leave_running) = dlsym(criu_handle, "criu_set_leave_running");
+    *(void **) (&criu_set_log_level) = dlsym(criu_handle, "criu_set_log_level");
+    *(void **) (&criu_set_log_file) = dlsym(criu_handle, "criu_set_log_file");
+
     return 0;
 }
 
