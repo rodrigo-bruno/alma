@@ -1,7 +1,6 @@
 #!/bin/bash
-# Usage ./criu-restore <pid>
+# Usage ./criu-restore <dir>
 
-pid=$1
-dir=/tmp/criu-dump-$pid
-sudo ~/bin/criu restore -t $pid -d -vvv -D $dir -o $dir/restore.log
+dir=$1
+sudo criu restore -d -vvv -D $dir -o $dir/restore.log
 echo "Check $dir/restore.log"

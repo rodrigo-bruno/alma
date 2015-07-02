@@ -4,6 +4,7 @@ javac=$HOME/mercurial/jdk8/build/linux-x86_64-normal-server-release/jdk/bin/java
 coordinator=$HOME/git/JMigration/Coordinator/dist/Debug/GNU-Linux-x86/coordinator
 bin=$HOME/bin
 
+rm -r $bin > /dev/null
 mkdir $bin > /dev/null
 
 cp java $bin
