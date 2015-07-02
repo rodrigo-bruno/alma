@@ -1,0 +1,8 @@
+#!/bin/bash
+# Usage ./criu-dump <pid>
+
+pid=$1
+dir=/tmp/criu-dump-$pid
+mkdir $dir
+sudo ~/bin/criu dump -t $pid -vvv -D $dir -o $dir/dump.log
+echo "Check $dir/dump.log"

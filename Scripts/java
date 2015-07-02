@@ -1,0 +1,9 @@
+#!/bin/bash
+
+JAVA_HOME=/home/$USER/mercurial/jdk8/build/linux-x86_64-normal-server-release/jdk 
+JAVA_AGENT=/home/$USER/git/JMigration/Agent/dist/Debug/GNU-Linux-x86/libAgent.so
+JAVA_EXE="$JAVA_HOME/bin/java"
+JAVA_OPTS="-agentpath:$JAVA_AGENT -Xloggc:gc.log -XX:+PrintGC -XX:+UseG1GC"
+
+setsid $JAVA_EXE $JAVA_OPTS $* < /dev/null &> jvm.log &
+
