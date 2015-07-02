@@ -9,19 +9,19 @@ CND_DISTDIR=dist
 # Debug configuration
 CND_PLATFORM_Debug=GNU-Linux-x86
 CND_ARTIFACT_DIR_Debug=dist/Debug/GNU-Linux-x86
-CND_ARTIFACT_NAME_Debug=libJMigration.so
-CND_ARTIFACT_PATH_Debug=dist/Debug/GNU-Linux-x86/libJMigration.so
+CND_ARTIFACT_NAME_Debug=libAgent.so
+CND_ARTIFACT_PATH_Debug=dist/Debug/GNU-Linux-x86/libAgent.so
 CND_PACKAGE_DIR_Debug=dist/Debug/GNU-Linux-x86/package
-CND_PACKAGE_NAME_Debug=libJMigration.so.tar
-CND_PACKAGE_PATH_Debug=dist/Debug/GNU-Linux-x86/package/libJMigration.so.tar
+CND_PACKAGE_NAME_Debug=libAgent.so.tar
+CND_PACKAGE_PATH_Debug=dist/Debug/GNU-Linux-x86/package/libAgent.so.tar
 # Release configuration
 CND_PLATFORM_Release=GNU-Linux-x86
 CND_ARTIFACT_DIR_Release=dist/Release/GNU-Linux-x86
-CND_ARTIFACT_NAME_Release=jmigration
-CND_ARTIFACT_PATH_Release=dist/Release/GNU-Linux-x86/jmigration
+CND_ARTIFACT_NAME_Release=agent
+CND_ARTIFACT_PATH_Release=dist/Release/GNU-Linux-x86/agent
 CND_PACKAGE_DIR_Release=dist/Release/GNU-Linux-x86/package
-CND_PACKAGE_NAME_Release=jmigration.tar
-CND_PACKAGE_PATH_Release=dist/Release/GNU-Linux-x86/package/jmigration.tar
+CND_PACKAGE_NAME_Release=agent.tar
+CND_PACKAGE_PATH_Release=dist/Release/GNU-Linux-x86/package/agent.tar
 #
 # include compiler specific variables
 #

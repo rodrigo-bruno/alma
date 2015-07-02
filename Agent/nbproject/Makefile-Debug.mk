@@ -52,20 +52,20 @@ FFLAGS=
 ASFLAGS=
 
 # Link Libraries and Options
-LDLIBSOPTIONS=-lcriu -shared -fPIC
+LDLIBSOPTIONS=-shared -fPIC
 
 # Build Targets
 .build-conf: ${BUILD_SUBPROJECTS}
-	"${MAKE}"  -f nbproject/Makefile-${CND_CONF}.mk ${CND_DISTDIR}/${CND_CONF}/${CND_PLATFORM}/libJMigration.${CND_DLIB_EXT}
+	"${MAKE}"  -f nbproject/Makefile-${CND_CONF}.mk ${CND_DISTDIR}/${CND_CONF}/${CND_PLATFORM}/libAgent.${CND_DLIB_EXT}
 
-${CND_DISTDIR}/${CND_CONF}/${CND_PLATFORM}/libJMigration.${CND_DLIB_EXT}: ${OBJECTFILES}
+${CND_DISTDIR}/${CND_CONF}/${CND_PLATFORM}/libAgent.${CND_DLIB_EXT}: ${OBJECTFILES}
 	${MKDIR} -p ${CND_DISTDIR}/${CND_CONF}/${CND_PLATFORM}
-	${LINK.cc} -o ${CND_DISTDIR}/${CND_CONF}/${CND_PLATFORM}/libJMigration.${CND_DLIB_EXT} ${OBJECTFILES} ${LDLIBSOPTIONS} -shared -fPIC
+	gcc -o ${CND_DISTDIR}/${CND_CONF}/${CND_PLATFORM}/libAgent.${CND_DLIB_EXT} ${OBJECTFILES} ${LDLIBSOPTIONS} -shared -fPIC
 
 ${OBJECTDIR}/main.o: main.cpp 
 	${MKDIR} -p ${OBJECTDIR}
 	${RM} "$@.d"
-	$(COMPILE.cc) -g -I../../../mercurial/jdk8/build/linux-x86_64-normal-server-release/jdk/include/linux -I../../../mercurial/jdk8/build/linux-x86_64-normal-server-release/jdk/include -fPIC  -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/main.o main.cpp
+	$(COMPILE.c) -g -I../../../mercurial/jdk8/build/linux-x86_64-normal-server-release/jdk/include -I../../../mercurial/jdk8/build/linux-x86_64-normal-server-release/jdk/include/linux -fPIC  -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/main.o main.cpp
 
 # Subprojects
 .build-subprojects:
@@ -73,7 +73,7 @@ ${OBJECTDIR}/main.o: main.cpp
 # Clean Targets
 .clean-conf: ${CLEAN_SUBPROJECTS}
 	${RM} -r ${CND_BUILDDIR}/${CND_CONF}
-	${RM} ${CND_DISTDIR}/${CND_CONF}/${CND_PLATFORM}/libJMigration.${CND_DLIB_EXT}
+	${RM} ${CND_DISTDIR}/${CND_CONF}/${CND_PLATFORM}/libAgent.${CND_DLIB_EXT}
 
 # Subprojects
 .clean-subprojects:

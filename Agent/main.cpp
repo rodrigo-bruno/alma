@@ -19,7 +19,7 @@
 #define AGENT_SOCK_PORT 9999
 
 #define PREPARE_MIGRATION "01"
-// TODO GET_PID?
+#define GET_PID           "02"
 
 
 /* Global static data */
@@ -28,9 +28,6 @@ static int            gc_count;
 static jrawMonitorID  lock;
 static FILE*          log;
 static jlong          min_migration_bandwidth = 1000;
-// TODO - replace this with another mutex?
-static bool           migration_in_progress = false; 
-static pthread_mutex_t mutex;
 
 /* Worker thread that waits for garbage collections */
 static void JNICALL
@@ -60,18 +57,13 @@ worker(jvmtiEnv* jvmti, JNIEnv* jni, void *p)
 
 	/* Perform arbitrary JVMTI/JNI work here to do post-GC cleanup */
 	fprintf(log, "post-GarbageCollectionFinish actions...\n");
-        if(migration_in_progress) {
-          migration_in_progress = false;
-          pthread_mutex_unlock(&mutex);
-          // TODO - swith the mutex to alert the other thread to use the socket.          
-        }
     }
 }
 
 /* Worker thread that waits for JVM migration */
 static void JNICALL
 worker2(jvmtiEnv* jvmti, JNIEnv* jni, void *p) {
-    int sockfd, newsockfd;
+    int sockfd, newsockfd, sockopt = 1;
     socklen_t clilen;
     char buffer[256];
     struct sockaddr_in serv_addr, cli_addr;
@@ -86,6 +78,15 @@ worker2(jvmtiEnv* jvmti, JNIEnv* jni, void *p) {
         serv_addr.sin_family = AF_INET;
         serv_addr.sin_addr.s_addr = INADDR_ANY;
         serv_addr.sin_port = htons(AGENT_SOCK_PORT);
+        
+        if (setsockopt(
+                sockfd, 
+                SOL_SOCKET, 
+                SO_REUSEADDR, 
+                &sockopt, 
+                sizeof(sockopt)) == -1) {
+            fprintf(log, "ERROR: Unable to set SO_REUSEADDR\n");
+        }
         
         if (bind(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) { 
             fprintf(log, "ERROR: Unable to bind agent socket.\n");
@@ -106,18 +107,26 @@ worker2(jvmtiEnv* jvmti, JNIEnv* jni, void *p) {
 
         while(true) {
             bzero(buffer,256);
-            if(read(newsockfd,buffer,255) < 0) {
+            if(read(newsockfd,buffer,256) < 0) {
                 fprintf(log, "ERROR: failed to read from socket.\n");
                 break;
             }
-            if(strncmp(buffer, PREPARE_MIGRATION, sizeof(PREPARE_MIGRATION))) {
-              fprintf(log, "Preparing Migration\n");
-              jvmti->PrepareMigration(min_migration_bandwidth);
-              migration_in_progress = true;
-              pthread_mutex_lock(&mutex);
-              close(newsockfd); // This will ack the other side.
-              close(sockfd);    // This will not allow new connections.
-              pthread_mutex_lock(&mutex);
+            if(!strncmp(buffer, PREPARE_MIGRATION, sizeof(PREPARE_MIGRATION))) {
+                fprintf(log, "Preparing Migration\n");
+                jvmti->PrepareMigration(min_migration_bandwidth);;
+                close(newsockfd); // This will ack the other side.
+                close(sockfd);    // This will not allow new connections.
+                // Sleep 5 seconds so that the coordinator can freeze before
+                // the JVM before a new server socket is created.
+                fprintf(log, "Waiting for a dump\n");
+                sleep(5);      
+                fprintf(log, "Re-spawned?\n");
+                break;
+            }
+            else if(!strncmp(buffer, GET_PID, sizeof(GET_PID))) {
+                fprintf(log, "Getting PID\n");
+                pid_t pid = getpid();
+                write(newsockfd, &pid, sizeof(pid_t));
             }
             else {
                 fprintf(log, "ERROR: received unknown message. Ignoring...\n");
@@ -235,17 +244,9 @@ Agent_OnLoad(JavaVM *vm, char *options, void *reserved)
 	return -1;
     }
 
-    if((log = fopen("agent.log", "a")) == NULL) {
+    if((log = fopen("agent.log", "w")) == NULL) {
         fprintf(stderr, "ERROR: Unable to open log file.\n");
     }
-    
-    if (pthread_mutex_init(&mutex, NULL) != 0)
-    {
-        fprintf(log, "\n mutex init failed\n");
-        return -11;
-    }
-    // TODO - explain why mutex is locked here.
-    pthread_mutex_lock(&mutex);
     
     return 0;
 }

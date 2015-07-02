@@ -60,12 +60,12 @@ LDLIBSOPTIONS=-lcriu
 
 ${CND_DISTDIR}/${CND_CONF}/${CND_PLATFORM}/coordinator: ${OBJECTFILES}
 	${MKDIR} -p ${CND_DISTDIR}/${CND_CONF}/${CND_PLATFORM}
-	${LINK.cc} -o ${CND_DISTDIR}/${CND_CONF}/${CND_PLATFORM}/coordinator ${OBJECTFILES} ${LDLIBSOPTIONS}
+	${LINK.c} -o ${CND_DISTDIR}/${CND_CONF}/${CND_PLATFORM}/coordinator ${OBJECTFILES} ${LDLIBSOPTIONS}
 
-${OBJECTDIR}/main.o: main.cpp 
+${OBJECTDIR}/main.o: main.c 
 	${MKDIR} -p ${OBJECTDIR}
 	${RM} "$@.d"
-	$(COMPILE.cc) -g -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/main.o main.cpp
+	$(COMPILE.c) -g -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/main.o main.c
 
 # Subprojects
 .build-subprojects:

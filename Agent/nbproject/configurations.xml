@@ -38,21 +38,27 @@
         <rebuildPropChanged>false</rebuildPropChanged>
       </toolsSet>
       <compileType>
+        <cTool>
+          <incDir>
+            <pElem>../../../mercurial/jdk8/build/linux-x86_64-normal-server-release/jdk/include</pElem>
+            <pElem>../../../mercurial/jdk8/build/linux-x86_64-normal-server-release/jdk/include/linux</pElem>
+          </incDir>
+        </cTool>
         <ccTool>
           <incDir>
-            <pElem>../../../mercurial/jdk8/build/linux-x86_64-normal-server-release/jdk/include/linux</pElem>
             <pElem>../../../mercurial/jdk8/build/linux-x86_64-normal-server-release/jdk/include</pElem>
+            <pElem>../../../mercurial/jdk8/build/linux-x86_64-normal-server-release/jdk/include/linux</pElem>
           </incDir>
         </ccTool>
         <linkerTool>
+          <commandlineTool>gcc</commandlineTool>
           <linkerLibItems>
-            <linkerLibLibItem>criu</linkerLibLibItem>
             <linkerOptionItem>-shared</linkerOptionItem>
             <linkerOptionItem>-fPIC</linkerOptionItem>
           </linkerLibItems>
         </linkerTool>
       </compileType>
-      <item path="main.cpp" ex="false" tool="1" flavor2="0">
+      <item path="main.cpp" ex="false" tool="0" flavor2="0">
       </item>
     </conf>
     <conf name="Release" type="1">
