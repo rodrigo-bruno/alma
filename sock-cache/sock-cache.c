@@ -48,6 +48,7 @@ static int put_fd = -1;
 static int finished = 0;
 static pthread_mutex_t lock;
 static sem_t semph;
+static int putting = 0;
 
 void* get_remote_image(void* ptr) {
     remote_image* rimg = (remote_image*) ptr;
@@ -88,6 +89,10 @@ void* put_remote_image(void* ptr) {
     int src_fd = rimg->src_fd;
     int n, nblocks;
     
+    pthread_mutex_lock(&lock);
+    putting++;
+    pthread_mutex_unlock(&lock);
+    
     nblocks = 1;
     while(1) {
         n = read(   src_fd, 
@@ -98,6 +103,7 @@ void* put_remote_image(void* ptr) {
             close(src_fd);
             pthread_mutex_lock(&lock);
             DL_APPEND(head, rimg);
+            putting--;
             pthread_mutex_unlock(&lock);
             sem_post(&semph);
             return NULL;
@@ -139,7 +145,7 @@ remote_image* wait_for_image(int cli_fd, const char* path) {
             }
             return result;
         }
-        if (finished) {
+        if (finished && !putting) {
             if (write(cli_fd, DUMP_FINISH, PATHLEN) < 1) {
                 fprintf(stderr,"Unable to send nack to get image connection\n");
             }
