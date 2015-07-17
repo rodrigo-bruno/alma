@@ -12,6 +12,7 @@
 #include <pthread.h>
 #include <semaphore.h>
 #include <utlist.h>
+#include <time.h>
 
 #define DEFAULT_LISTEN 50
 #define PATHLEN 32
@@ -206,6 +207,7 @@ void* accept_put_image_connections(void* null) {
     struct sockaddr_in cli_addr;
     clilen = sizeof (cli_addr);
     char path_buf[PATHLEN];
+    time_t t;
     
     while (1) {
         
@@ -225,7 +227,8 @@ void* accept_put_image_connections(void* null) {
         }
         
         if (!strncmp(path_buf, DUMP_FINISH, sizeof (DUMP_FINISH))) {
-            printf("Dump side is finished!\n");
+            time(&t);
+            printf("Dump side is finished! (%s)\n", ctime(&t));
             close(cli_fd);
             close(put_fd);
             finished = 1;

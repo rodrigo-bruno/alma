@@ -47,6 +47,7 @@ bool dump_jvm(pid_t pid) {
     // TODO - check if this works without the service
     criu_set_service_address((char*)MIGRATION_SERVICE);
     criu_set_pid(pid);
+    criu_set_remote(true);
     // TODO - fix this
     criu_set_images_dir_fd(fd);     
     criu_set_log_level(4); 
@@ -121,9 +122,11 @@ int main(int argc, char** argv) {
     } 
     else if(n == 0) {
         close(sockfd);
+        /*
         if ((n = dump_jvm(pid)) < 0) {
             fprintf(stderr, "ERROR: failed to dump jvm (error code = %d).\n", n);
         }
+        */
     }
     else {
         fprintf(stderr, "ERROR: agent should have just closed the connection.\n");
