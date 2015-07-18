@@ -89,6 +89,7 @@ void* put_remote_image(void* ptr) {
     remote_buffer* curr_buf = rimg->buf_head;
     int src_fd = rimg->src_fd;
     int n, nblocks;
+    time_t t;
     
     pthread_mutex_lock(&lock);
     putting++;
@@ -100,7 +101,8 @@ void* put_remote_image(void* ptr) {
                     curr_buf->buffer + curr_buf->nbytes, 
                     BUF_SIZE - curr_buf->nbytes);
         if (n == 0) {
-            printf("Finished receiving %s (%d blocks).\n", rimg->path, nblocks);
+            time(&t);
+            printf("Finished receiving %s (%d blocks) %s", rimg->path, nblocks, ctime(&t));
             close(src_fd);
             pthread_mutex_lock(&lock);
             DL_APPEND(head, rimg);
@@ -227,8 +229,6 @@ void* accept_put_image_connections(void* null) {
         }
         
         if (!strncmp(path_buf, DUMP_FINISH, sizeof (DUMP_FINISH))) {
-            time(&t);
-            printf("Dump side is finished! (%s)\n", ctime(&t));
             close(cli_fd);
             close(put_fd);
             finished = 1;
@@ -262,8 +262,8 @@ void* accept_put_image_connections(void* null) {
             fprintf(stderr,"Unable to create put thread\n");
             return NULL;
         } 
-        
-        printf("Reveiced PUT %s, from %d\n", img->path, img->src_fd);
+        time(&t);
+        printf("Reveiced PUT %s, from %d %s", img->path, img->src_fd, ctime(&t));
     }
 }
 

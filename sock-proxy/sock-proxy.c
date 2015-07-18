@@ -12,7 +12,6 @@
 #include <pthread.h>
 #include <semaphore.h>
 #include <utlist.h>
-#include <time.h>
 
 #define DEFAULT_LISTEN 50
 #define PATHLEN 32
@@ -112,7 +111,6 @@ void* accept_remote_image_connections(void* null) {
     struct sockaddr_in cli_addr, serv_addr;
     clilen = sizeof (cli_addr);
     struct hostent *restore_server;
-    time_t t;
 
     while (1) {
         src_fd = accept(sockfd, (struct sockaddr *) &cli_addr, &clilen);
@@ -196,8 +194,7 @@ void* accept_remote_image_connections(void* null) {
                 return NULL;
         } 
         
-        time(&t);
-        printf("Reveiced %s, from %d to %d\n (%s)", img->path, img->src_fd, img->dst_fd, ctime(&t));
+        printf("Reveiced %s, from %d to %d\n (%s)", img->path, img->src_fd, img->dst_fd);
         DL_APPEND(head, img);
     }
 }
