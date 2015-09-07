@@ -113,7 +113,10 @@ worker2(jvmtiEnv* jvmti, JNIEnv* jni, void *p) {
             }
             if(!strncmp(buffer, PREPARE_MIGRATION, sizeof(PREPARE_MIGRATION))) {
                 fprintf(log, "Preparing Migration\n");
-                jvmti->PrepareMigration(min_migration_bandwidth);;
+                // TODO - prepare apenas lanca, e faz set da bandwidth.
+                // TODO - depois o finish fica à espera e envia o sock # para
+                // ser feita a listagem das regioes vazias.
+                jvmti->PrepareMigration(min_migration_bandwidth);
                 close(newsockfd); // This will ack the other side.
                 close(sockfd);    // This will not allow new connections.
                 // Sleep 5 seconds so that the coordinator can freeze before
