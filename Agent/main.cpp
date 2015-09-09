@@ -17,123 +17,140 @@
 // TODO - put these definitions into a shared header.
 // TODO - support for different ports. If one is taken, take the next.
 #define AGENT_SOCK_PORT 9999
+#define PROXY_SOCK_PORT 9991
 
 #define PREPARE_MIGRATION "01"
 #define GET_PID           "02"
+#define START_MIGRATION   "03"
 
 
 /* Global static data */
 static jvmtiEnv*      jvmti;
-static int            gc_count;
-static jrawMonitorID  lock;
 static FILE*          log;
 static jlong          min_migration_bandwidth = 1000;
 
-/* Worker thread that waits for garbage collections */
-static void JNICALL
-worker(jvmtiEnv* jvmti, JNIEnv* jni, void *p) 
-{
-    jvmtiError err;
-    
-    fprintf(log, "GC worker started...\n");
+static int prepare_migration = 0;
+static int preparing_migration = 0;
+static int start_migration = 0;
+static int starting_migration = 0;
+static int coord_sock = -1;
 
-    for (;;) {
-        err = jvmti->RawMonitorEnter(lock);
-        if (err != JVMTI_ERROR_NONE) {
-	    fprintf(log, "ERROR: RawMonitorEnter failed (worker1), err=%d\n", err);
-	    return;
-	}
-	while (gc_count == 0) {
-	    err = jvmti->RawMonitorWait(lock, 0);
-	    if (err != JVMTI_ERROR_NONE) {
-		fprintf(log, "ERROR: RawMonitorWait failed (worker1), err=%d\n", err);
-		jvmti->RawMonitorExit(lock);
-		return;
-	    }
-	}
-	gc_count = 0;
+static int prepare_server_socket() {
+    struct sockaddr_in serv_addr;
+    int sockopt = 1;
         
-	jvmti->RawMonitorExit(lock);
-
-	/* Perform arbitrary JVMTI/JNI work here to do post-GC cleanup */
-	fprintf(log, "post-GarbageCollectionFinish actions...\n");
+    int sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (sockfd < 0) {
+        fprintf(log, "ERROR: Unable to open agent socket.\n");
+        return -1;
     }
+
+    bzero((char *) &serv_addr, sizeof(serv_addr));
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_addr.s_addr = INADDR_ANY;
+    serv_addr.sin_port = htons(AGENT_SOCK_PORT);
+
+    if (setsockopt(
+            sockfd, 
+            SOL_SOCKET, 
+            SO_REUSEADDR, 
+            &sockopt, 
+            sizeof(sockopt)) == -1) {
+        fprintf(log, "ERROR: Unable to set SO_REUSEADDR\n");
+        return -1;
+    }
+
+    if (bind(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) { 
+        fprintf(log, "ERROR: Unable to bind agent socket.\n");
+        return -1;
+    }
+    else {
+        fprintf(log, "Agent socket ready to accept connections.\n");
+        return -1;
+    }
+
+    if (listen(sockfd, 1)) {
+        fprintf(log, "ERROR: Unable to listen image socket\n");
+        return -1;
+    }
+    
+    return sockfd;
+}
+
+static int prepare_client_socket() {
+    int sockfd;
+    struct sockaddr_in serv_addr;
+    struct hostent *server;
+
+    sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (sockfd < 0) {
+            fprintf(log, "ERROR: Unable to open socket (proxy)\n");
+            return -1;
+    }
+
+    server = gethostbyname("localhost");
+    if (server == NULL) {
+            fprintf(log, "ERROR: Unable to get host by name (localhost)\n");
+            return -1;
+    }
+
+    bzero((char *) &serv_addr, sizeof (serv_addr));
+    serv_addr.sin_family = AF_INET;
+    bcopy((char *) server->h_addr,
+          (char *) &serv_addr.sin_addr.s_addr,
+          server->h_length);
+    serv_addr.sin_port = htons(PROXY_SOCK_PORT);
+
+    if (connect(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) {
+            fprintf(log, "ERROR: Unable to connect (proxy)\n");
+            return -1;
+    }
+
+    return sockfd;
 }
 
 /* Worker thread that waits for JVM migration */
 static void JNICALL
 worker2(jvmtiEnv* jvmti, JNIEnv* jni, void *p) {
-    int sockfd, newsockfd, sockopt = 1;
-    socklen_t clilen;
+    int sockfd = -1;
     char buffer[256];
-    struct sockaddr_in serv_addr, cli_addr;
+    struct sockaddr_in cli_addr;
+    socklen_t clilen = sizeof(cli_addr);
 
     while(true) {
-        sockfd = socket(AF_INET, SOCK_STREAM, 0);
-        if (sockfd < 0) {
-            fprintf(log, "ERROR: Unable to open agent socket.\n");
-        }
+        sockfd = prepare_server_socket();
         
-        bzero((char *) &serv_addr, sizeof(serv_addr));
-        serv_addr.sin_family = AF_INET;
-        serv_addr.sin_addr.s_addr = INADDR_ANY;
-        serv_addr.sin_port = htons(AGENT_SOCK_PORT);
-        
-        if (setsockopt(
-                sockfd, 
-                SOL_SOCKET, 
-                SO_REUSEADDR, 
-                &sockopt, 
-                sizeof(sockopt)) == -1) {
-            fprintf(log, "ERROR: Unable to set SO_REUSEADDR\n");
-        }
-        
-        if (bind(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) { 
-            fprintf(log, "ERROR: Unable to bind agent socket.\n");
-        }
-        else {
-            fprintf(log, "Agent socket ready to accept connections.\n");
-        }
-        
-        listen(sockfd,1);
-        clilen = sizeof(cli_addr);
-        newsockfd = accept(sockfd, (struct sockaddr *) &cli_addr, &clilen);
-        if (newsockfd < 0) {
+        coord_sock = accept(sockfd, (struct sockaddr *) &cli_addr, &clilen);
+        if (coord_sock < 0) {
             fprintf(log, "ERROR: connection accept failed.\n");
-        }
+        }   
         else {
             fprintf(log, "Coordinator connection accepted.\n");
         }
 
-        while(true) {
-            bzero(buffer,256);
-            if(read(newsockfd,buffer,256) < 0) {
-                fprintf(log, "ERROR: failed to read from socket.\n");
-                break;
-            }
-            if(!strncmp(buffer, PREPARE_MIGRATION, sizeof(PREPARE_MIGRATION))) {
-                fprintf(log, "Preparing Migration\n");
-                // TODO - prepare apenas lanca, e faz set da bandwidth.
-                // TODO - depois o finish fica à espera e envia o sock # para
-                // ser feita a listagem das regioes vazias.
-                jvmti->PrepareMigration(min_migration_bandwidth);
-                close(newsockfd); // This will ack the other side.
-                close(sockfd);    // This will not allow new connections.
-                // Sleep 5 seconds so that the coordinator can freeze before
-                // the JVM before a new server socket is created.
-                fprintf(log, "Waiting for a dump\n");
-                sleep(5);      
-                fprintf(log, "Re-spawned?\n");
-                break;
-            }
-            else if(!strncmp(buffer, GET_PID, sizeof(GET_PID))) {
-                fprintf(log, "Getting PID\n");
-                pid_t pid = getpid();
-                write(newsockfd, &pid, sizeof(pid_t));
-            }
-            else {
-                fprintf(log, "ERROR: received unknown message. Ignoring...\n");
-            }
+        
+        if(read(coord_sock,buffer,256) < 0) {
+            fprintf(log, "ERROR: failed to read from socket.\n");
+        }
+        else if(!strncmp(buffer, PREPARE_MIGRATION, sizeof(PREPARE_MIGRATION))) {
+            fprintf(log, "Prepare Migration\n");
+            close(sockfd);
+            prepare_migration = 1;
+            jvmti->PrepareMigration(min_migration_bandwidth);
+        }
+        else if(!strncmp(buffer, START_MIGRATION, sizeof(START_MIGRATION))) {
+            fprintf(log, "Start Migration\n");
+            close(sockfd);
+            start_migration = 1;
+            jvmti->PrepareMigration(min_migration_bandwidth);
+        }
+        else if(!strncmp(buffer, GET_PID, sizeof(GET_PID))) {
+            fprintf(log, "Getting PID\n");
+            pid_t pid = getpid();
+            write(coord_sock, &pid, sizeof(pid_t));
+        }
+        else {
+            fprintf(log, "ERROR: received unknown message. Ignoring...\n");
         }
     }
 }
@@ -159,11 +176,6 @@ vm_init(jvmtiEnv *jvmti, JNIEnv *env, jthread thread)
     
     fprintf(log, "VMInit...\n");
 
-    err = jvmti->RunAgentThread(alloc_thread(env), &worker, NULL,
-	JVMTI_THREAD_MAX_PRIORITY);
-    if (err != JVMTI_ERROR_NONE) {
-	fprintf(log, "ERROR: RunAgentProc failed (worker1), err=%d\n", err);
-    }
     err = jvmti->RunAgentThread(alloc_thread(env), &worker2, NULL,
 	JVMTI_THREAD_MAX_PRIORITY);
     if (err != JVMTI_ERROR_NONE) {
@@ -175,27 +187,36 @@ vm_init(jvmtiEnv *jvmti, JNIEnv *env, jthread thread)
 static void JNICALL 
 gc_start(jvmtiEnv* jvmti_env) 
 {
-    fprintf(log, "GarbageCollectionStart...\n");
+    if(prepare_migration) {
+        prepare_migration = 0;
+        preparing_migration = 1;
+        fprintf(log, "GarbageCollectionStart (preparing migration)...\n");
+    } 
+    else if(start_migration) {
+        start_migration = 0;
+        starting_migration = 1;
+        fprintf(log, "GarbageCollectionStart (starting migration)...\n");
+    }
+    else {
+        fprintf(log, "GarbageCollectionStart...\n");
+    }
 }
 
 /* Callback for JVMTI_EVENT_GARBAGE_COLLECTION_FINISH */
 static void JNICALL 
 gc_finish(jvmtiEnv* jvmti_env) 
 {
-    jvmtiError err;
-    
-    fprintf(log, "GarbageCollectionFinish...\n");
-
-    err = jvmti->RawMonitorEnter(lock);
-    if (err != JVMTI_ERROR_NONE) {
-	fprintf(log, "ERROR: RawMonitorEnter failed (worker1), err=%d\n", err);
-    } else {
-        gc_count++;
-        err = jvmti->RawMonitorNotify(lock);
-	if (err != JVMTI_ERROR_NONE) {
-	    fprintf(log, "ERROR: RawMonitorNotify failed (worker1), err=%d\n", err);
-	}
-        err = jvmti->RawMonitorExit(lock);
+    if(preparing_migration || starting_migration) {
+        preparing_migration = starting_migration = 0;
+        fprintf(log, "GarbageCollectionFinish (migration) ...\n");
+        // TODO - call in the JVM and send the socket fd to write the free regions.
+        // TODO - send free regions through socket to image-proxy (new socket)
+        // TODO - close new socket (ack end)
+        close(coord_sock); // (ack to proceed with dump/pre-dump)
+        sleep(1);
+    }
+    else {
+        fprintf(log, "GarbageCollectionFinish...\n");    
     }
 }
 
@@ -239,13 +260,6 @@ Agent_OnLoad(JavaVM *vm, char *options, void *reserved)
 			JVMTI_EVENT_GARBAGE_COLLECTION_START, NULL);
     jvmti->SetEventNotificationMode(JVMTI_ENABLE, 
 			JVMTI_EVENT_GARBAGE_COLLECTION_FINISH, NULL);
-
-    /* Create the necessary raw monitor */
-    err = jvmti->CreateRawMonitor("lock", &lock);
-    if (err != JVMTI_ERROR_NONE) {
-	fprintf(log, "ERROR: Unable to create raw monitor: %d\n", err);
-	return -1;
-    }
 
     if((log = fopen("agent.log", "w")) == NULL) {
         fprintf(stderr, "ERROR: Unable to open log file.\n");
