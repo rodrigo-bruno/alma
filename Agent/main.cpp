@@ -10,6 +10,7 @@
 #include <sys/types.h> 
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <netdb.h>
 
 #include "jni.h"
 #include "jvmti.h"
@@ -20,8 +21,7 @@
 #define PROXY_SOCK_PORT 9991
 
 #define PREPARE_MIGRATION "01"
-#define GET_PID           "02"
-#define START_MIGRATION   "03"
+#define START_MIGRATION   "02"
 
 
 /* Global static data */
@@ -62,10 +62,6 @@ static int prepare_server_socket() {
 
     if (bind(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) { 
         fprintf(log, "ERROR: Unable to bind agent socket.\n");
-        return -1;
-    }
-    else {
-        fprintf(log, "Agent socket ready to accept connections.\n");
         return -1;
     }
 
@@ -116,19 +112,27 @@ worker2(jvmtiEnv* jvmti, JNIEnv* jni, void *p) {
     char buffer[256];
     struct sockaddr_in cli_addr;
     socklen_t clilen = sizeof(cli_addr);
-
+    pid_t pid = getpid();
+    
     while(true) {
         sockfd = prepare_server_socket();
+        if(sockfd < 0) {
+            fprintf(log, "ERROR: unable to create proxy server... exiting.\n");
+            fflush(log);
+            return;
+        }
         
         coord_sock = accept(sockfd, (struct sockaddr *) &cli_addr, &clilen);
         if (coord_sock < 0) {
             fprintf(log, "ERROR: connection accept failed.\n");
         }   
-        else {
-            fprintf(log, "Coordinator connection accepted.\n");
-        }
 
+        // Write PID    
+        if (write(coord_sock, &pid, sizeof(pid_t)) < 0) {
+            fprintf(log, "ERROR: unable to send pid (%u)\n", pid);
+        }
         
+        // Read Command
         if(read(coord_sock,buffer,256) < 0) {
             fprintf(log, "ERROR: failed to read from socket.\n");
         }
@@ -143,11 +147,6 @@ worker2(jvmtiEnv* jvmti, JNIEnv* jni, void *p) {
             close(sockfd);
             start_migration = 1;
             jvmti->PrepareMigration(min_migration_bandwidth);
-        }
-        else if(!strncmp(buffer, GET_PID, sizeof(GET_PID))) {
-            fprintf(log, "Getting PID\n");
-            pid_t pid = getpid();
-            write(coord_sock, &pid, sizeof(pid_t));
         }
         else {
             fprintf(log, "ERROR: received unknown message. Ignoring...\n");
@@ -209,11 +208,9 @@ gc_finish(jvmtiEnv* jvmti_env)
     if(preparing_migration || starting_migration) {
         preparing_migration = starting_migration = 0;
         fprintf(log, "GarbageCollectionFinish (migration) ...\n");
-        // TODO - call in the JVM and send the socket fd to write the free regions.
-        // TODO - send free regions through socket to image-proxy (new socket)
-        // TODO - close new socket (ack end)
+        jvmti->SendFreeRegions(0); // send_free_regions(prepare_client_socket());
         close(coord_sock); // (ack to proceed with dump/pre-dump)
-        sleep(1);
+        sleep(1); // this sleep is to force the JVM to yield
     }
     else {
         fprintf(log, "GarbageCollectionFinish...\n");    

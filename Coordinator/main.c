@@ -12,20 +12,12 @@
 #include <criu/criu.h>
 #include <fcntl.h>
 
-#define AGENT_SOCK_PORT 9999
-
 #define PREPARE_MIGRATION "01"
-#define GET_PID           "02"
+#define START_MIGRATION   "02"
 
 #define MIGRATION_DIR "/tmp/dump-test/"
 #define MIGRATION_LOG "dump.log"
 #define MIGRATION_SERVICE "/var/run/criu-service.socket"
-
-void error(const char *msg)
-{
-    perror(msg);
-    exit(0);
-}
 
 bool dump_jvm(pid_t pid) {
     int ret = -1;
@@ -58,68 +50,121 @@ bool dump_jvm(pid_t pid) {
     return criu_dump();
 }
 
-int main(int argc, char** argv) {
+bool pre_dump_jvm(pid_t pid) {
+    // TODO
+}
 
-    int sockfd, portno, n;
+int prepare_client_socket(char* hostname, int port) {
+    int sockfd;
     struct sockaddr_in serv_addr;
     struct hostent *server;
+
+    sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (sockfd < 0) {
+            fprintf(stderr, "ERROR: Unable to open socket (proxy)\n");
+            return -1;
+    }
+
+    server = gethostbyname(hostname);
+    if (server == NULL) {
+            fprintf(stderr, "ERROR: Unable to get host by name (%s)\n", hostname);
+            return -1;
+    }
+
+    bzero((char *) &serv_addr, sizeof (serv_addr));
+    serv_addr.sin_family = AF_INET;
+    bcopy((char *) server->h_addr,
+          (char *) &serv_addr.sin_addr.s_addr,
+          server->h_length);
+    serv_addr.sin_port = htons(port);
+
+    if (connect(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) {
+            fprintf(stderr, "ERROR: Unable to connect (agent)\n");
+            return -1;
+    }
+
+    return sockfd;
+}
+
+int main(int argc, char** argv) {
+
+    int sockfd, n;
     char buffer[256];
     pid_t pid;
     
     if (argc < 3) {
        fprintf(stderr,"usage %s hostname port\n", argv[0]);
-       exit(0);
-    }
-    
-    portno = atoi(argv[2]);
-    sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sockfd < 0) {
-        error("ERROR opening socket");
-    }
-    
-    server = gethostbyname(argv[1]);
-    if (server == NULL) {
-        error("ERROR, no such host\n");
-    }
-    
-    bzero((char *) &serv_addr, sizeof(serv_addr));
-    serv_addr.sin_family = AF_INET;
-    bcopy((char *)server->h_addr, 
-          (char *)&serv_addr.sin_addr.s_addr,
-          server->h_length);
-    serv_addr.sin_port = htons(portno);
-    
-    if (connect(sockfd,(struct sockaddr *) &serv_addr,sizeof(serv_addr)) < 0) {
-        error("ERROR connecting");
+       return 0;
     }
 
-    // Write Get Pid
-    if (write(sockfd,GET_PID,sizeof(GET_PID)) < 0) {
-        error("ERROR writing to socket (get pid)");
+    // Pre-dump phase
+    sockfd = prepare_client_socket(argv[1], atoi(argv[2]));
+    if(sockfd < 0) {
+        fprintf(stderr, "ERROR: unable to open socket to %s:%s\n", argv[1], argv[2]);
+        return 0;
     }
     
-    // Read Result (expected a pid)
     n = read(sockfd,&pid,sizeof(pid));
     if (n < 0) { 
-         error("ERROR reading from socket");
+         fprintf(stderr, "ERROR: reading from socket");
+         return 0;
     }
     else if (n == 0) {
-        fprintf(stderr, "ERROR connection closed unexpectedly.\n");
+        fprintf(stderr,"ERROR: connection closed unexpectedly.\n");
+        return 0;
+    }
+    
+    printf("Process to pre-dump with pid %u\n", pid);
+    
+    // Write Prepare Migration
+    if (n < write(sockfd,PREPARE_MIGRATION,sizeof(PREPARE_MIGRATION))) {
+        fprintf(stderr, "ERROR: writing to socket (prep migration)");
+        return 0;
+    }
+    
+    n = read(sockfd,buffer,256);
+    if(n == 0) {
+        close(sockfd);
+        /*
+        if ((n = pre_dump_jvm(pid)) < 0) {
+            fprintf(stderr, "ERROR: failed to dump jvm (error code = %d).\n", n);
+        }
+        */
+    }
+    else {
+        fprintf(stderr, "ERROR: agent should have just closed the connection.\n");
+        return 0;
+    }
+    
+    sleep(2); // TODO - simulate transfer time
+    
+    // Dump phase
+    sockfd = prepare_client_socket(argv[1], atoi(argv[2]));
+    if(sockfd < 0) {
+        fprintf(stderr, "ERROR: unable to open socket to %s:%s\n", argv[1], argv[2]);
+        return 0;
+    }
+
+    n = read(sockfd,&pid,sizeof(pid));
+    if (n < 0) { 
+        fprintf(stderr,"ERROR: reading from socket");
+        return 0;
+    }
+    else if (n == 0) {
+        fprintf(stderr,"ERROR: connection closed unexpectedly.\n");
+        return 0;
     }
     
     printf("Process to dump with pid %u\n", pid);
     
-    // Write Prepare Migration
-    if (n < write(sockfd,PREPARE_MIGRATION,sizeof(PREPARE_MIGRATION))) {
-        error("ERROR writing to socket (prep migration)");
+    // Write Start Migration
+    if (n < write(sockfd,START_MIGRATION,sizeof(START_MIGRATION))) {
+        fprintf(stderr, "ERROR: writing to socket (start migration)");
+        return 0;
     }
     
-    // Read Result (expected a connection close)
-    n = read(sockfd,buffer,255);
-    if (n < 0) { 
-         error("ERROR reading from socket");
-    } 
-    else if(n == 0) {
+    n = read(sockfd,buffer,256);
+    if(n == 0) {
         close(sockfd);
         /*
         if ((n = dump_jvm(pid)) < 0) {
@@ -129,6 +174,7 @@ int main(int argc, char** argv) {
     }
     else {
         fprintf(stderr, "ERROR: agent should have just closed the connection.\n");
+        return 0;
     }
     
     return 0;
