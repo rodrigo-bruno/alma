@@ -13,7 +13,6 @@
 #include <fcntl.h>
 
 #define PREPARE_MIGRATION "01"
-#define START_MIGRATION   "02"
 
 #define MIGRATION_DIR "/tmp/dump-test/"
 #define MIGRATION_LOG "dump.log"
@@ -157,9 +156,9 @@ int main(int argc, char** argv) {
     
     printf("Process to dump with pid %u\n", pid);
     
-    // Write Start Migration
-    if (n < write(sockfd,START_MIGRATION,sizeof(START_MIGRATION))) {
-        fprintf(stderr, "ERROR: writing to socket (start migration)");
+    // Write Prepare Migration
+    if (n < write(sockfd,PREPARE_MIGRATION,sizeof(PREPARE_MIGRATION))) {
+        fprintf(stderr, "ERROR: writing to socket (prep migration)");
         return 0;
     }
     

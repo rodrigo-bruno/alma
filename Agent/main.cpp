@@ -21,8 +21,6 @@
 #define PROXY_SOCK_PORT 9991
 
 #define PREPARE_MIGRATION "01"
-#define START_MIGRATION   "02"
-
 
 /* Global static data */
 static jvmtiEnv*      jvmti;
@@ -32,8 +30,8 @@ static jlong          min_migration_bandwidth = 1000;
 static int prepare_migration = 0;
 static int preparing_migration = 0;
 static int start_migration = 0;
-static int starting_migration = 0;
 static int coord_sock = -1;
+static int agent_sock = -1;
 
 static int prepare_server_socket() {
     struct sockaddr_in serv_addr;
@@ -73,7 +71,7 @@ static int prepare_server_socket() {
     return sockfd;
 }
 
-static int prepare_client_socket() {
+static int prepare_client_socket(int port) {
     int sockfd;
     struct sockaddr_in serv_addr;
     struct hostent *server;
@@ -95,7 +93,7 @@ static int prepare_client_socket() {
     bcopy((char *) server->h_addr,
           (char *) &serv_addr.sin_addr.s_addr,
           server->h_length);
-    serv_addr.sin_port = htons(PROXY_SOCK_PORT);
+    serv_addr.sin_port = htons(port);
 
     if (connect(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) {
             fprintf(log, "ERROR: Unable to connect (proxy)\n");
@@ -115,7 +113,7 @@ worker2(jvmtiEnv* jvmti, JNIEnv* jni, void *p) {
     pid_t pid = getpid();
     
     while(true) {
-        sockfd = prepare_server_socket();
+        sockfd = prepare_server_socket(); // TODO - no need for this inside the loop
         if(sockfd < 0) {
             fprintf(log, "ERROR: unable to create proxy server... exiting.\n");
             fflush(log);
@@ -133,19 +131,14 @@ worker2(jvmtiEnv* jvmti, JNIEnv* jni, void *p) {
         }
         
         // Read Command
-        if(read(coord_sock,buffer,256) < 0) {
+        if(read(coord_sock, buffer, 256) < 0) {
             fprintf(log, "ERROR: failed to read from socket.\n");
         }
         else if(!strncmp(buffer, PREPARE_MIGRATION, sizeof(PREPARE_MIGRATION))) {
             fprintf(log, "Prepare Migration\n");
             close(sockfd);
+            agent_sock = prepare_client_socket(PROXY_SOCK_PORT);  // closed at finish
             prepare_migration = 1;
-            jvmti->PrepareMigration(min_migration_bandwidth);
-        }
-        else if(!strncmp(buffer, START_MIGRATION, sizeof(START_MIGRATION))) {
-            fprintf(log, "Start Migration\n");
-            close(sockfd);
-            start_migration = 1;
             jvmti->PrepareMigration(min_migration_bandwidth);
         }
         else {
@@ -191,30 +184,28 @@ gc_start(jvmtiEnv* jvmti_env)
         preparing_migration = 1;
         fprintf(log, "GarbageCollectionStart (preparing migration)...\n");
     } 
-    else if(start_migration) {
-        start_migration = 0;
-        starting_migration = 1;
-        fprintf(log, "GarbageCollectionStart (starting migration)...\n");
-    }
     else {
         fprintf(log, "GarbageCollectionStart...\n");
     }
+    fflush(log); // TODO - delete
 }
 
 /* Callback for JVMTI_EVENT_GARBAGE_COLLECTION_FINISH */
 static void JNICALL 
 gc_finish(jvmtiEnv* jvmti_env) 
 {
-    if(preparing_migration || starting_migration) {
-        preparing_migration = starting_migration = 0;
+    if(preparing_migration) {
+        preparing_migration = 0;
         fprintf(log, "GarbageCollectionFinish (migration) ...\n");
-        jvmti->SendFreeRegions(0); // send_free_regions(prepare_client_socket());
+        jvmti->SendFreeRegions(agent_sock);
+        close(agent_sock); // (ack to proxy)
         close(coord_sock); // (ack to proceed with dump/pre-dump)
-        sleep(1); // this sleep is to force the JVM to yield
+        //sleep(1); // this sleep is to force the JVM to yield
     }
     else {
         fprintf(log, "GarbageCollectionFinish...\n");    
     }
+    fflush(log); // TODO - delete
 }
 
 /* Agent_OnLoad() is called first, we prepare for a VM_INIT event here. */
