@@ -14,43 +14,58 @@
 
 #define PREPARE_MIGRATION "01"
 
-#define MIGRATION_DIR "/tmp/dump-test/"
-#define MIGRATION_LOG "dump.log"
-#define MIGRATION_SERVICE "/var/run/criu-service.socket"
+#define DUMP_DIR "/tmp/dump"
+#define DUMP_LOG "/tmp/dump.log"
+#define PREDUMP_DIR "/tmp/pre-dump"
+#define PREDUMP_LOG "/tmp/pre-dump.log"
 
-bool dump_jvm(pid_t pid) {
-    int ret = -1;
-    int fd;
+bool dump_jvm(pid_t dumpee) {
+    pid_t dumper = fork();
+    char buf[8];
     
-    printf("Dumping...\n");
+    sprintf(buf, "%lu", (unsigned long) dumpee);
 
-    fd = open(MIGRATION_DIR, O_DIRECTORY);
-    if (fd < 0) {
-      fprintf(stderr, "ERROR: can't open images dir.\n");
-      return false;
-    }  
-    
-    ret = criu_init_opts();
-    if(ret) {
-        fprintf(stderr, "ERROR: criu_init_opts failed.\n");
+    if(dumper == 0) {
+        execl("/usr/local/sbin/criu", "/usr/local/sbin/criu", 
+            "dump",
+            "-D", DUMP_DIR, 
+            "-d", 
+            "-vvvv", 
+            "-o", DUMP_LOG, 
+            "-t", buf,
+            "--remote", 
+
+            "--prev-images-dir", PREDUMP_DIR,
+            "--track-mem",
+                            (char*) NULL);
     }
-    
-    // TODO - check if this works without the service
-    criu_set_service_address((char*)MIGRATION_SERVICE);
-    criu_set_pid(pid);
-    criu_set_remote(true);
-    // TODO - fix this
-    criu_set_images_dir_fd(fd);     
-    criu_set_log_level(4); 
-    criu_set_log_file((char*)MIGRATION_LOG);
-    criu_set_leave_running(false);
-    
-    printf("Final Call...\n");
-    return criu_dump();
+    else {
+        // TODO - I must wait until the other one finishes
+        printf("Launched dump (pid = %lu)\n", (unsigned long) dumper);
+    }
 }
 
-bool pre_dump_jvm(pid_t pid) {
-    // TODO
+bool pre_dump_jvm(pid_t dumpee) {
+    pid_t dumper = fork();
+    char buf[8];
+    
+    sprintf(buf, "%lu", (unsigned long) dumpee);
+
+    if(dumper == 0) {
+        execl("/usr/local/sbin/criu", "/usr/local/sbin/criu", 
+            "pre-dump",
+            "-D", PREDUMP_DIR, 
+            "-d", 
+            "-vvvv", 
+            "-o", PREDUMP_LOG, 
+            "-t", buf,
+            "--remote",
+            (char*) NULL);
+    }
+    else {
+        // TODO - I must wait until the other one finishes
+        printf("Launched pre-dump (pid = %lu)\n", (unsigned long) dumper);
+    }
 }
 
 int prepare_client_socket(char* hostname, int port) {
@@ -95,7 +110,7 @@ int main(int argc, char** argv) {
        fprintf(stderr,"usage %s hostname port\n", argv[0]);
        return 0;
     }
-
+    
     // Pre-dump phase
     sockfd = prepare_client_socket(argv[1], atoi(argv[2]));
     if(sockfd < 0) {
@@ -124,18 +139,16 @@ int main(int argc, char** argv) {
     n = read(sockfd,buffer,256);
     if(n == 0) {
         close(sockfd);
-        /*
         if ((n = pre_dump_jvm(pid)) < 0) {
             fprintf(stderr, "ERROR: failed to dump jvm (error code = %d).\n", n);
         }
-        */
     }
     else {
         fprintf(stderr, "ERROR: agent should have just closed the connection.\n");
         return 0;
     }
     
-    sleep(2); // TODO - simulate transfer time
+    sleep(5); // TODO - simulate transfer time
     
     // Dump phase
     sockfd = prepare_client_socket(argv[1], atoi(argv[2]));
@@ -165,17 +178,15 @@ int main(int argc, char** argv) {
     n = read(sockfd,buffer,256);
     if(n == 0) {
         close(sockfd);
-        /*
         if ((n = dump_jvm(pid)) < 0) {
             fprintf(stderr, "ERROR: failed to dump jvm (error code = %d).\n", n);
         }
-        */
     }
     else {
         fprintf(stderr, "ERROR: agent should have just closed the connection.\n");
         return 0;
     }
-    
+
     return 0;
 }
 

@@ -19,6 +19,7 @@
 // TODO - support for different ports. If one is taken, take the next.
 #define AGENT_SOCK_PORT 9999
 #define PROXY_SOCK_PORT 9991
+#define AGENT_LOG "/tmp/agent.log"
 
 #define PREPARE_MIGRATION "01"
 
@@ -106,23 +107,24 @@ static int prepare_client_socket(int port) {
 /* Worker thread that waits for JVM migration */
 static void JNICALL
 worker2(jvmtiEnv* jvmti, JNIEnv* jni, void *p) {
-    int sockfd = -1;
+    
     char buffer[256];
     struct sockaddr_in cli_addr;
     socklen_t clilen = sizeof(cli_addr);
     pid_t pid = getpid();
     
-    while(true) {
-        sockfd = prepare_server_socket(); // TODO - no need for this inside the loop
-        if(sockfd < 0) {
-            fprintf(log, "ERROR: unable to create proxy server... exiting.\n");
-            fflush(log);
-            return;
-        }
-        
+    int sockfd = prepare_server_socket();
+    if(sockfd < 0) {
+        fprintf(log, "ERROR: unable to create proxy server... exiting.\n");
+        fflush(log);
+        return;
+    }
+    
+    while(true) {       
         coord_sock = accept(sockfd, (struct sockaddr *) &cli_addr, &clilen);
         if (coord_sock < 0) {
             fprintf(log, "ERROR: connection accept failed.\n");
+            return;
         }   
 
         // Write PID    
@@ -136,7 +138,6 @@ worker2(jvmtiEnv* jvmti, JNIEnv* jni, void *p) {
         }
         else if(!strncmp(buffer, PREPARE_MIGRATION, sizeof(PREPARE_MIGRATION))) {
             fprintf(log, "Prepare Migration\n");
-            close(sockfd);
             agent_sock = prepare_client_socket(PROXY_SOCK_PORT);  // closed at finish
             prepare_migration = 1;
             jvmti->PrepareMigration(min_migration_bandwidth);
@@ -249,7 +250,7 @@ Agent_OnLoad(JavaVM *vm, char *options, void *reserved)
     jvmti->SetEventNotificationMode(JVMTI_ENABLE, 
 			JVMTI_EVENT_GARBAGE_COLLECTION_FINISH, NULL);
 
-    if((log = fopen("agent.log", "w")) == NULL) {
+    if((log = fopen(AGENT_LOG, "w")) == NULL) {
         fprintf(stderr, "ERROR: Unable to open log file.\n");
     }
     
