@@ -40,8 +40,13 @@ bool dump_jvm(pid_t dumpee) {
                             (char*) NULL);
     }
     else {
-        // TODO - I must wait until the other one finishes
         printf("Launched dump (pid = %lu)\n", (unsigned long) dumper);
+        if (waitpid(dumper, NULL, NULL) < 0) {
+            fprintf(stderr, "Failed to wait for dump to finish\n");
+            return false;
+        }
+        printf("Finished dump (pid = %lu)\n", (unsigned long) dumper);
+        return true;
     }
 }
 
@@ -63,8 +68,13 @@ bool pre_dump_jvm(pid_t dumpee) {
             (char*) NULL);
     }
     else {
-        // TODO - I must wait until the other one finishes
         printf("Launched pre-dump (pid = %lu)\n", (unsigned long) dumper);
+        if (waitpid(dumper, NULL, NULL) < 0) {
+            fprintf(stderr, "Failed to wait for dump to finish\n");
+            return false;
+        }
+        printf("Finished pre-dump (pid = %lu)\n", (unsigned long) dumper);
+        return true;
     }
 }
 
@@ -147,8 +157,6 @@ int main(int argc, char** argv) {
         fprintf(stderr, "ERROR: agent should have just closed the connection.\n");
         return 0;
     }
-    
-    sleep(5); // TODO - simulate transfer time
     
     // Dump phase
     sockfd = prepare_client_socket(argv[1], atoi(argv[2]));
