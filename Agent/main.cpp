@@ -201,7 +201,8 @@ gc_finish(jvmtiEnv* jvmti_env)
         jvmti->SendFreeRegions(agent_sock);
         close(agent_sock); // (ack to proxy)
         close(coord_sock); // (ack to proceed with dump/pre-dump)
-        //sleep(1); // this sleep is to force the JVM to yield
+        sleep(5); // TODO - this sleep is to force the JVM to yield
+        fprintf(log, "New life?\n");
     }
     else {
         fprintf(log, "GarbageCollectionFinish...\n");    

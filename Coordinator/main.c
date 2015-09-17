@@ -14,6 +14,8 @@
 
 #define PREPARE_MIGRATION "01"
 
+#define PREDUMP 0
+
 #define DUMP_DIR "/tmp/dump"
 #define DUMP_LOG "/tmp/dump.log"
 #define PREDUMP_DIR "/tmp/pre-dump"
@@ -120,6 +122,8 @@ int main(int argc, char** argv) {
        fprintf(stderr,"usage %s hostname port\n", argv[0]);
        return 0;
     }
+
+#if PREDUMP
     
     // Pre-dump phase
     sockfd = prepare_client_socket(argv[1], atoi(argv[2]));
@@ -157,6 +161,8 @@ int main(int argc, char** argv) {
         fprintf(stderr, "ERROR: agent should have just closed the connection.\n");
         return 0;
     }
+
+#endif
     
     // Dump phase
     sockfd = prepare_client_socket(argv[1], atoi(argv[2]));
