@@ -201,7 +201,8 @@ gc_finish(jvmtiEnv* jvmti_env)
         jvmti->SendFreeRegions(agent_sock);
         close(agent_sock); // (ack to proxy)
         close(coord_sock); // (ack to proceed with dump/pre-dump)
-        sleep(5); // TODO - this sleep is to force the JVM to yield
+        // TODO - get a decent way to wait for criu
+        jvmti->SendFreeRegions(9999);
         fprintf(log, "New life?\n");
     }
     else {
