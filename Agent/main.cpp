@@ -22,6 +22,7 @@
 #define AGENT_LOG "/tmp/agent.log"
 
 #define PREPARE_MIGRATION "01"
+#define PREDUMP 1
 
 /* Global static data */
 static jvmtiEnv*      jvmti;
@@ -33,6 +34,9 @@ static int preparing_migration = 0;
 static int start_migration = 0;
 static int coord_sock = -1;
 static int agent_sock = -1;
+#if PREDUMP
+static int dump = 0;
+#endif
 
 static int prepare_server_socket() {
     struct sockaddr_in serv_addr;
@@ -145,6 +149,7 @@ worker2(jvmtiEnv* jvmti, JNIEnv* jni, void *p) {
         else {
             fprintf(log, "ERROR: received unknown message. Ignoring...\n");
         }
+        fflush(log);
     }
 }
 
@@ -199,10 +204,22 @@ gc_finish(jvmtiEnv* jvmti_env)
         preparing_migration = 0;
         fprintf(log, "GarbageCollectionFinish (migration) ...\n");
         jvmti->SendFreeRegions(agent_sock);
+        fprintf(log, "Going down...\n");
+        fflush(log); // TODO - delete
         close(agent_sock); // (ack to proxy)
         close(coord_sock); // (ack to proceed with dump/pre-dump)
-        // TODO - get a decent way to wait for criu
-        jvmti->SendFreeRegions(9999);
+#if PREDUMP
+        if(dump) {
+            sleep(9999); // This sleep is used to ensure that every thing is
+            // stopped while we dump the process, i.e., no inconsistency between
+            // our memory view (before the actual dump) and the actual dump.
+            dump = 0;
+        } else {
+            dump = 1; // In pre-dump, there is no need to assure consistency. If
+            // some write gets lost in the transfer, we will get it next time.
+            // no need to stop the application here.
+        }
+#endif
         fprintf(log, "New life?\n");
     }
     else {

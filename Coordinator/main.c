@@ -14,7 +14,7 @@
 
 #define PREPARE_MIGRATION "01"
 
-#define PREDUMP 0
+#define PREDUMP 1
 
 #define DUMP_DIR "/tmp/dump"
 #define DUMP_LOG "/tmp/dump.log"
@@ -36,7 +36,6 @@ bool dump_jvm(pid_t dumpee) {
             "-o", DUMP_LOG, 
             "-t", buf,
             "--remote", 
-
             "--prev-images-dir", PREDUMP_DIR,
             "--track-mem",
                             (char*) NULL);
@@ -162,6 +161,8 @@ int main(int argc, char** argv) {
         return 0;
     }
 
+    sleep(5); // Simulate data transfer delay.
+    
 #endif
     
     // Dump phase
