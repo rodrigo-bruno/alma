@@ -38,6 +38,7 @@ bool dump_jvm(pid_t dumpee) {
             "--remote", 
             "--prev-images-dir", PREDUMP_DIR,
             "--track-mem",
+            "--shell-job",
                             (char*) NULL);
     }
     else {
