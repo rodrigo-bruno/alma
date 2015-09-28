@@ -39,6 +39,7 @@ bool dump_jvm(pid_t dumpee) {
             "--prev-images-dir", PREDUMP_DIR,
             "--track-mem",
             "--shell-job",
+            "--file-locks",
                             (char*) NULL);
     }
     else {
