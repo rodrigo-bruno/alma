@@ -163,7 +163,7 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-    sleep(5); // Simulate data transfer delay.
+    sleep(1); // Simulate data transfer delay.
     
 #endif
     
