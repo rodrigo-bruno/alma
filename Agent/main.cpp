@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include <pthread.h>
+#include <semaphore.h>
 
 #include <unistd.h>
 #include <sys/types.h> 
@@ -29,13 +30,14 @@ static jvmtiEnv*      jvmti;
 static FILE*          log;
 static jlong          min_migration_bandwidth = 1000;
 
-static int prepare_marking = 0;
-static int preparing_marking = 0;
+static int marking = 0;
+static int finished_gcs = 0;
 static int prepare_migration = 0;
 static int preparing_migration = 0;
 static int start_migration = 0;
 static int coord_sock = -1;
 static int agent_sock = -1;
+static sem_t semph;
 #if PREDUMP
 static int dump = 0;
 #endif
@@ -145,10 +147,12 @@ worker2(jvmtiEnv* jvmti, JNIEnv* jni, void *p) {
         else if(!strncmp(buffer, PREPARE_MIGRATION, sizeof(PREPARE_MIGRATION))) {
             fprintf(log, "Prepare Migration\n");
             agent_sock = prepare_client_socket(PROXY_SOCK_PORT);  // closed at finish
-            prepare_marking = 1;
+            marking = 1;
+            finished_gcs = 0;
             jvmti->PrepareMigration(0);
             fprintf(log, "Going to sleep\n");
-            sleep(10);
+            //sem_wait(&semph);
+            sleep(1);
             fprintf(log, "Comming from sleep\n");
             prepare_migration = 1;
             jvmti->PrepareMigration(min_migration_bandwidth);
@@ -190,18 +194,16 @@ vm_init(jvmtiEnv *jvmti, JNIEnv *env, jthread thread)
 
 /* Callback for JVMTI_EVENT_GARBAGE_COLLECTION_START */
 static void JNICALL 
-gc_start(jvmtiEnv* jvmti_env) 
+gc_start(jvmtiEnv* jvmti_env)
 {
-    // prepare_migration here meains that the concurrent marking
+    // prepare_migration here means that the concurrent marking
     if(prepare_migration) {
         prepare_migration = 0;
         preparing_migration = 1;
         fprintf(log, "GarbageCollectionStart (preparing migration)...\n");
     }
-    else if(prepare_marking) {
-        prepare_marking = 0;
-        preparing_marking = 1;
-        fprintf(log, "GarbageCollectionStart (preparing marking)...\n");
+    else if(marking) {
+        fprintf(log, "GarbtageCollectionStart (marking)...\n");
     }
     else {
         fprintf(log, "GarbageCollectionStart...\n");
@@ -235,8 +237,17 @@ gc_finish(jvmtiEnv* jvmti_env)
 #endif
         fprintf(log, "New life?\n");
     }
-    else if(preparing_marking) {
-        fprintf(log, "GarbageCollectionFinish (marking)...\n");    
+    else if(marking) {
+        fprintf(log, "GarbageCollectionFinish (marking)...\n");
+        finished_gcs++;
+        // TODO - check if I can fix this.
+        // TODO - put anther GC cause to allow me to select regions.
+        /*
+        if(finished_gcs == 2) {
+            fprintf(log, "GarbageCollectionFinish (ready)...\n");
+            sem_post(&semph);
+        }
+         * */
     }
     else {
         fprintf(log, "GarbageCollectionFinish...\n");    
@@ -287,6 +298,11 @@ Agent_OnLoad(JavaVM *vm, char *options, void *reserved)
 
     if((log = fopen(AGENT_LOG, "w")) == NULL) {
         fprintf(stderr, "ERROR: Unable to open log file.\n");
+    }
+    
+      /* create, initialize semaphore */
+    if( sem_init(&semph,0,0) < 0) {
+        fprintf(stderr,"ERROR: Unable to init semaphore.\n");
     }
     
     return 0;
