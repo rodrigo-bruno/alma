@@ -30,6 +30,7 @@ static jvmtiEnv*      jvmti;
 static FILE*          log;
 static jlong          min_migration_bandwidth = 1000;
 
+static int prepare_marking = 0;
 static int marking = 0;
 static int finished_gcs = 0;
 static int prepare_migration = 0;
@@ -147,12 +148,10 @@ worker2(jvmtiEnv* jvmti, JNIEnv* jni, void *p) {
         else if(!strncmp(buffer, PREPARE_MIGRATION, sizeof(PREPARE_MIGRATION))) {
             fprintf(log, "Prepare Migration\n");
             agent_sock = prepare_client_socket(PROXY_SOCK_PORT);  // closed at finish
-            marking = 1;
-            finished_gcs = 0;
+            prepare_marking = 1;
             jvmti->PrepareMigration(0);
             fprintf(log, "Going to sleep\n");
-            //sem_wait(&semph);
-            sleep(1);
+            sem_wait(&semph);
             fprintf(log, "Comming from sleep\n");
             prepare_migration = 1;
             jvmti->PrepareMigration(min_migration_bandwidth);
@@ -202,7 +201,9 @@ gc_start(jvmtiEnv* jvmti_env)
         preparing_migration = 1;
         fprintf(log, "GarbageCollectionStart (preparing migration)...\n");
     }
-    else if(marking) {
+    else if(prepare_marking) {
+        prepare_marking = 0;
+        marking = 1;
         fprintf(log, "GarbtageCollectionStart (marking)...\n");
     }
     else {
@@ -238,16 +239,16 @@ gc_finish(jvmtiEnv* jvmti_env)
         fprintf(log, "New life?\n");
     }
     else if(marking) {
-        fprintf(log, "GarbageCollectionFinish (marking)...\n");
         finished_gcs++;
-        // TODO - check if I can fix this.
-        // TODO - put anther GC cause to allow me to select regions.
-        /*
         if(finished_gcs == 2) {
             fprintf(log, "GarbageCollectionFinish (ready)...\n");
+            marking = 0;
+            finished_gcs = 0;
             sem_post(&semph);
         }
-         * */
+        else {
+            fprintf(log, "GarbageCollectionFinish (marking)...\n");            
+        }
     }
     else {
         fprintf(log, "GarbageCollectionFinish...\n");    
