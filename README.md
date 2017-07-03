@@ -4,7 +4,7 @@
 
 How to test ALMA:
 
-1 - compile and install our version of CRIU in your system;
+1 - compile and install our version of CRIU (https://github.com/rodrigo-bruno/criu-alma) in your system;
 
 2 - download the openjdk 8 source code and replace the hotspot code with the one provided in https://github.com/rodrigo-bruno/ALMA-openjdk-8-hotspot;
 
