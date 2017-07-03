@@ -1,5 +1,6 @@
-# JMigration
-ALMA - GC-aware JVM Live Migration
+# ALMA - GC-aware JVM Live Migration
+
+[Check our paper at Middleware'16](http://www.gsd.inesc-id.pt/~rbruno/publications/rbruno-middleware16.pdf)
 
 How to test ALMA:
 
